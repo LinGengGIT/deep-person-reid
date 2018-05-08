@@ -112,6 +112,8 @@ def main():
 
     transform_train = T.Compose([
         T.Random2DTranslation(args.height, args.width),
+        # T.RectScale(args.height, args.width),
+        # T.RandomSizedEarser(),
         T.RandomHorizontalFlip(),
         T.ToTensor(),
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
