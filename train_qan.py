@@ -12,6 +12,7 @@ sys.path.insert(0, fileDir)
 
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
@@ -236,6 +237,10 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
         if use_gpu:
             imgs, pids, labels = imgs.cuda(), pids.cuda(), labels.cuda()
         outputs, features, scores = model(imgs)
+        scores = scores.view(-1, args.seq_len)
+        scores = F.softmax(scores, dim=1)
+        scores = scores.view(-1, 1)
+
         if args.htri_only:
             # only use hard triplet loss to train the network
             loss_img = criterion_htri(features, pids)
@@ -249,6 +254,7 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
         # outputs = outputs.view(batch_size, args.seq_len, -1)
         features = features.view(batch_size, args.seq_len, -1)
         scores = scores.view(batch_size, args.seq_len, -1).expand(batch_size, args.seq_len, features.size(-1))
+
         features = (features * scores).sum(1)
         scores = scores.sum(1)
         features = features / scores
@@ -296,6 +302,9 @@ def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20])
             b, s, c, h, w = imgs.size()
             imgs = imgs.view(b*s, c, h, w)
             _, features, scores = model(imgs)
+            scores = scores.view(-1, args.seq_len)
+            scores = F.softmax(scores, dim=1)
+            scores = scores.view(-1, 1)
             features = features.view(b, s, -1)
             if pool == 'avg':
                 features = torch.mean(features, 1)
@@ -322,6 +331,9 @@ def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20])
             b, s, c, h, w = imgs.size()
             imgs = imgs.view(b*s, c, h, w)
             _, features, scores = model(imgs)
+            scores = scores.view(-1, args.seq_len)
+            scores = F.softmax(scores, dim=1)
+            scores = scores.view(-1, 1)
             features = features.view(b, s, -1)
             if pool == 'avg':
                 features = torch.mean(features, 1)

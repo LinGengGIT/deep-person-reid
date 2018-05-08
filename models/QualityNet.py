@@ -141,24 +141,33 @@ class FeaturePart(nn.Module):
         #     raise KeyError("Unsupported loss: {}".format(self.loss))
 
 class QualityPart(nn.Module):
-    def __init__(self, seq_len, inplanes=1024, planes=2048):
+    def __init__(self, inplanes=1024, planes=2048):
         super(QualityPart, self).__init__()
-        self.seq_len = seq_len
+        # self.seq_len = seq_len
         self.conv = nn.Conv2d(inplanes, planes, kernel_size=3, stride=2, padding=1, bias=False)
+        self.bn = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
         self.fc = nn.Linear(planes, 1)
         # self.bn = nn.BatchNorm1d(1)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        
         x = F.avg_pool2d(x, x.size()[2:])
         x = x.view(x.size(0), -1)
         x = self.fc(x)
-        x = x.view(-1, self.seq_len)
-        x = F.softmax(x, dim=1)
-        x = x.view(-1, 1)
+        # x = x.view(-1, self.seq_len)
+        # x = F.softmax(x, dim=1)
+        # x = x.view(-1, 1)
+
         # x = F.sigmoid(x)
         # x = self.bn(x)
         return x
@@ -186,6 +195,6 @@ def qualitynet_res50(num_classes, loss={'xent'}, seq_len=15, pretrained='pretrai
         state_dict = torch.load(pretrained)
         base.load_state_dict(state_dict)
     feature = FeaturePart(num_classes, loss)
-    quality = QualityPart(seq_len)
+    quality = QualityPart()
     model = QAN(base,feature, quality, loss)
     return model
