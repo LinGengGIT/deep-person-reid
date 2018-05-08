@@ -160,10 +160,7 @@ def main():
     criterion_xent = CrossEntropyLabelSmooth(num_classes=dataset.num_train_pids, use_gpu=use_gpu)
     criterion_htri = TripletLoss(margin=args.margin)
 
-    param_groups = [{'params': model.base_model.parameters(), 'lr_mult': 1.0},
-                    {'params': model.feature_model.parameters(), 'lr_mult': 10.0},
-                    {'params': model.quality_model.parameters(), 'lr_mult': 10.0}]
-    optimizer = init_optim(args.optim, param_groups, args.lr, args.weight_decay)
+    optimizer = init_optim(args.optim, model.parameters(), args.lr, args.weight_decay)
     if args.stepsize > 0:
         scheduler = lr_scheduler.StepLR(optimizer, step_size=args.stepsize, gamma=args.gamma)
     start_epoch = args.start_epoch
