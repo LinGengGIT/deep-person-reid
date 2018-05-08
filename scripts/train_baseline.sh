@@ -1,4 +1,4 @@
 python baseline.py --save-dir log/baseline-res50-ilidsvid \
-	-b 32 --gpu-devices 0,1,2,3 \
+	-b 32 --gpu-devices 4,5,6,7 \
 	--optim adam --lr 0.0003 \
 	--max-epoch 200 --stepsize 100 --eval-step 50 --print-freq 4

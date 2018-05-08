@@ -261,7 +261,7 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
             print('Epoch: [{0}/{1}][{2}/{3}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'ImgLoss {img_loss.val:.6f} ({img_loss.avg:.6f})'
+                  'ImgLoss {img_loss.val:.6f} ({img_loss.avg:.6f})'.format(
                    epoch+1, args.max_epoch, batch_idx+1, len(trainloader), batch_time=batch_time,
                    data_time=data_time, img_loss=losses_img))
 
