@@ -1,7 +1,8 @@
 # deep-person-reid
 This repo contains [PyTorch](http://pytorch.org/) implementations of deep person re-identification models.
 
-## best model now for QAN
+## Best model now for QAN
+```
 Results ----------
 mAP: 86.0%
 CMC curve
@@ -10,26 +11,27 @@ Rank-5  : 92.7%
 Rank-10 : 95.3%
 Rank-20 : 96.7%
 ------------------
+```
 
-### download the code
+### Download the code
 ```
 git clone -b qan https://github.com/yxgeee/deep-person-reid.git
 cd deep-person-reid
 ```
 
-### prepare the data(or download by the code, but slow)
+### Prepare the data(or download by the code, but slow)
 ```
 mkdir data
 ln -s /your/path/to/iLIDS/ data/ilids-vid
 ```
 
-### prepare the pretrained model for resnet50(download from https://download.pytorch.org/models/resnet50-19c8e357.pth)
+### Prepare the pretrained model for [resnet50](https://download.pytorch.org/models/resnet50-19c8e357.pth)
 ```
 mkdir pretrained_models
 mv /your/path/to/resnet50.pth/ .
 ```
 
-### train the QAN or baseline model
+### Train the QAN or baseline model
 ```
 sh scripts/train_qan.sh
 ```
@@ -38,7 +40,7 @@ or
 sh scripts/train_baseline.sh
 ```
 
-### test prepared model(modify the model path in test.sh)
+### Test prepared model (modify the model path in test.sh)
 ```
 sh scripts/test_qan.sh
 ```
