@@ -140,19 +140,19 @@ def main():
 
     queryloader = DataLoader(
         VideoDataset(dataset.query, seq_len=args.seq_len, sample='evenly', transform=transform_test),
-        batch_size=args.test_batch, shuffle=False, num_workers=args.workers,
+        batch_size=args.train_batch, shuffle=False, num_workers=args.workers,
         pin_memory=pin_memory, drop_last=False,
     )
 
     galleryloader = DataLoader(
         VideoDataset(dataset.gallery, seq_len=args.seq_len, sample='evenly', transform=transform_test),
-        batch_size=args.test_batch, shuffle=False, num_workers=args.workers,
+        batch_size=args.train_batch, shuffle=False, num_workers=args.workers,
         pin_memory=pin_memory, drop_last=False,
     )
 
     # print("Initializing model: {}".format(args.arch))
     # model = models.init_model(name=args.arch, num_classes=dataset.num_train_pids, loss={'xent', 'htri'})
-    model = qualitynet_res50(dataset.num_train_pids, loss={'xent', 'htri'})
+    model = qualitynet_res50(dataset.num_train_pids, loss={'xent', 'htri'}, seq_len=args.seq_len)
     print("Model size: {:.5f}M".format(sum(p.numel() for p in model.parameters())/1000000.0))
 
     criterion_xent = CrossEntropyLabelSmooth(num_classes=dataset.num_train_pids, use_gpu=use_gpu)
