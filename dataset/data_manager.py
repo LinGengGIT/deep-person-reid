@@ -12,7 +12,7 @@ import numpy as np
 import h5py
 from scipy.misc import imsave
 
-from utils import mkdir_if_missing, write_json, read_json
+from util.utils import mkdir_if_missing, write_json, read_json
 
 """Image ReID"""
 

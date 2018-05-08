@@ -7,22 +7,24 @@ import argparse
 import os.path as osp
 import numpy as np
 
+fileDir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, fileDir)
+
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 
-import data_manager
-from dataset_loader import ImageDataset, VideoDataset
-import transforms as T
-import models
-from losses import CrossEntropyLabelSmooth, TripletLoss
-from utils import AverageMeter, Logger, save_checkpoint
-from eval_metrics import evaluate
-from samplers import RandomIdentitySampler
+import dataset.data_manager as data_manager
+from dataset.dataset_loader import ImageDataset, VideoDataset
+import util.transforms as T
+# import models
+from util.losses import CrossEntropyLabelSmooth, TripletLoss
+from util.utils import AverageMeter, Logger, save_checkpoint
+from util.eval_metrics import evaluate
+from util.samplers import RandomIdentitySampler
 # from optimizers import init_optim
-
 from models.QualityNet import qualitynet_res50
 
 parser = argparse.ArgumentParser(description='Train video model with cross entropy loss')
@@ -60,7 +62,7 @@ parser.add_argument('--num-instances', type=int, default=4,
 parser.add_argument('--htri-only', action='store_true', default=False,
                     help="if this is True, only htri loss is used in training")
 # Architecture
-parser.add_argument('-a', '--arch', type=str, default='resnet50', choices=models.get_names())
+# parser.add_argument('-a', '--arch', type=str, default='resnet50', choices=models.get_names())
 parser.add_argument('--pool', type=str, default='avg', choices=['avg', 'max', 'qan'])
 # Miscs
 parser.add_argument('--print-freq', type=int, default=1, help="print frequency")
@@ -148,7 +150,7 @@ def main():
         pin_memory=pin_memory, drop_last=False,
     )
 
-    print("Initializing model: {}".format(args.arch))
+    # print("Initializing model: {}".format(args.arch))
     # model = models.init_model(name=args.arch, num_classes=dataset.num_train_pids, loss={'xent', 'htri'})
     model = qualitynet_res50(dataset.num_train_pids, loss={'xent', 'htri'})
     print("Model size: {:.5f}M".format(sum(p.numel() for p in model.parameters())/1000000.0))
@@ -156,7 +158,10 @@ def main():
     criterion_xent = CrossEntropyLabelSmooth(num_classes=dataset.num_train_pids, use_gpu=use_gpu)
     criterion_htri = TripletLoss(margin=args.margin)
 
-    optimizer = init_optim(args.optim, model.parameters(), args.lr, args.weight_decay)
+    param_groups = [{'params': model.base_model.parameters(), 'lr_mult': 1.0},
+                    {'params': model.feature_model.parameters(), 'lr_mult': 10.0},
+                    {'params': model.quality_model.parameters(), 'lr_mult': 10.0}]
+    optimizer = init_optim(args.optim, param_groups, args.lr, args.weight_decay)
     if args.stepsize > 0:
         scheduler = lr_scheduler.StepLR(optimizer, step_size=args.stepsize, gamma=args.gamma)
     start_epoch = args.start_epoch
@@ -214,10 +219,15 @@ def main():
     print("Finished. Total elapsed time (h:m:s): {}. Training time (h:m:s): {}.".format(elapsed, train_time))
 
 def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, use_gpu):
+    batch_time = AverageMeter()
+    data_time = AverageMeter()
+    losses_img = AverageMeter()
+    losses_seq = AverageMeter()
     model.train()
-    losses = AverageMeter()
 
+    end = time.time()
     for batch_idx, (imgs, pids, _) in enumerate(trainloader):
+        data_time.update(time.time() - end)
         batch_size = pids.size(0)
         labels = pids
         if len(imgs.shape)>4:
@@ -228,12 +238,12 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
         outputs, features, scores = model(imgs)
         if args.htri_only:
             # only use hard triplet loss to train the network
-            loss = criterion_htri(features, pids)
+            loss_img = criterion_htri(features, pids)
         else:
             # combine hard triplet loss with cross entropy loss
             xent_loss = criterion_xent(outputs, pids)
             htri_loss = criterion_htri(features, pids)
-            loss = xent_loss + htri_loss
+            loss_img = xent_loss + htri_loss
 
         
         # outputs = outputs.view(batch_size, args.seq_len, -1)
@@ -245,23 +255,36 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
         seq_out, _ = model(features)
         if args.htri_only:
             # only use hard triplet loss to train the network
-            loss += criterion_htri(features, labels)
+            loss_seq = criterion_htri(features, labels)
         else:
             # combine hard triplet loss with cross entropy loss
             xent_loss = criterion_xent(seq_out, labels)
             htri_loss = criterion_htri(features, labels)
-            loss += xent_loss 
-            loss += htri_loss
+            loss_seq = xent_loss + htri_loss
+        loss = loss_img + loss_seq
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        losses.update(loss.item(), labels.size(0))
+
+        losses_img.update(loss_img.item(), pids.size(0))
+        losses_seq.update(loss_seq.item(), labels.size(0))
+
+        batch_time.update(time.time() - end)
+        end = time.time()
 
         if (batch_idx+1) % args.print_freq == 0:
-            print("Epoch {}/{}\t Batch {}/{}\t Loss {:.6f} ({:.6f})".format(
-                epoch+1, args.max_epoch, batch_idx+1, len(trainloader), losses.val, losses.avg
-            ))
+            # print("Epoch {}/{}\t Batch {}/{}\t Loss {:.6f} ({:.6f})".format(
+            #     epoch+1, args.max_epoch, batch_idx+1, len(trainloader), losses.val, losses.avg
+            # ))
+            print('Epoch: [{0}/{1}][{2}/{3}]\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                  'ImgLoss {img_loss.val:.6f} ({img_loss.avg:.6f})\t'
+                  'SeqLoss {seq_loss.val:.6f} ({seq_loss.avg:.6f})'.format(
+                   epoch+1, args.max_epoch, batch_idx+1, len(trainloader), batch_time=batch_time,
+                   data_time=data_time, img_loss=losses_img, seq_loss=losses_seq))
+
 
 def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20]):
     model.eval()
