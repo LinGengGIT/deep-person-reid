@@ -8,10 +8,12 @@ import torchvision
 __all__ = ['ResNet50', 'ResNet50M']
 
 class ResNet50(nn.Module):
-    def __init__(self, num_classes, loss={'xent'}, **kwargs):
+    def __init__(self, num_classes, loss={'xent'}, pretrained='pretrained_models/resnet50.pth', **kwargs):
         super(ResNet50, self).__init__()
         self.loss = loss
-        resnet50 = torchvision.models.resnet50(pretrained=True)
+        resnet50 = torchvision.models.resnet50(pretrained=False)
+        state_dict = torch.load(pretrained)
+        resnet50.load_state_dict(state_dict)
         self.base = nn.Sequential(*list(resnet50.children())[:-2])
         self.classifier = nn.Linear(2048, num_classes)
         self.feat_dim = 2048 # feature dimension
@@ -78,7 +80,7 @@ class ResNet50M(nn.Module):
         if not self.training:
             return combofeat
         prelogits = self.classifier(combofeat)
-        
+
         if self.loss == {'xent'}:
             return prelogits
         elif self.loss == {'xent', 'htri'}:

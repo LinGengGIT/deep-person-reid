@@ -160,10 +160,7 @@ def main():
     criterion_xent = CrossEntropyLabelSmooth(num_classes=dataset.num_train_pids, use_gpu=use_gpu)
     criterion_htri = TripletLoss(margin=args.margin)
 
-    param_groups = [{'params': model.base_model.parameters(), 'lr_mult': 1.0},
-                    {'params': model.feature_model.parameters(), 'lr_mult': 10.0},
-                    {'params': model.quality_model.parameters(), 'lr_mult': 10.0}]
-    optimizer = init_optim(args.optim, param_groups, args.lr, args.weight_decay)
+    optimizer = init_optim(args.optim, model.parameters(), args.lr, args.weight_decay)
     if args.stepsize > 0:
         scheduler = lr_scheduler.StepLR(optimizer, step_size=args.stepsize, gamma=args.gamma)
     start_epoch = args.start_epoch
@@ -261,7 +258,7 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
             print('Epoch: [{0}/{1}][{2}/{3}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'ImgLoss {img_loss.val:.6f} ({img_loss.avg:.6f})'
+                  'ImgLoss {img_loss.val:.6f} ({img_loss.avg:.6f})'.format(
                    epoch+1, args.max_epoch, batch_idx+1, len(trainloader), batch_time=batch_time,
                    data_time=data_time, img_loss=losses_img))
 
