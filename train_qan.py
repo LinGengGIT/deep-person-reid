@@ -113,7 +113,7 @@ def main():
     transform_train = T.Compose([
         T.Random2DTranslation(args.height, args.width),
         # T.RectScale(args.height, args.width),
-        # T.RandomSizedEarser(),
+        T.RandomSizedEarser(),
         T.RandomHorizontalFlip(),
         T.ToTensor(),
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -193,9 +193,9 @@ def main():
         start_train_time = time.time()
         train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, use_gpu)
         train_time += round(time.time() - start_train_time)
-        
+
         if args.stepsize > 0: scheduler.step()
-        
+
         if args.eval_step > 0 and (epoch+1) % args.eval_step == 0 or (epoch+1) == args.max_epoch:
             print("==> Test")
             rank1 = test(model, queryloader, galleryloader, args.pool, use_gpu)
@@ -252,7 +252,7 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
             htri_loss = criterion_htri(features, pids)
             loss_img = xent_loss + htri_loss
 
-        
+
         # outputs = outputs.view(batch_size, args.seq_len, -1)
         features = features.view(batch_size, args.seq_len, -1)
         scores = scores.view(batch_size, args.seq_len, -1).expand(batch_size, args.seq_len, features.size(-1))
@@ -355,7 +355,7 @@ def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20])
         g_camids = np.asarray(g_camids)
 
         print("Extracted features for gallery set, obtained {}-by-{} matrix".format(gf.size(0), gf.size(1)))
-    
+
     print("Computing distance matrix")
 
     m, n = qf.size(0), gf.size(0)
