@@ -1,6 +1,52 @@
 # deep-person-reid
 This repo contains [PyTorch](http://pytorch.org/) implementations of deep person re-identification models.
 
+## best model now for QAN
+Results ----------
+mAP: 86.0%
+CMC curve
+Rank-1  : 80.7%
+Rank-5  : 92.7%
+Rank-10 : 95.3%
+Rank-20 : 96.7%
+------------------
+
+### download the code
+```
+git clone -b qan https://github.com/yxgeee/deep-person-reid.git
+cd deep-person-reid
+```
+
+### prepare the data(or download by the code, but slow)
+```
+mkdir data
+ln -s /your/path/to/iLIDS/ data/ilids-vid
+```
+
+### prepare the pretrained model for resnet50(download from https://download.pytorch.org/models/resnet50-19c8e357.pth)
+```
+mkdir pretrained_models
+mv /your/path/to/resnet50.pth/ .
+```
+
+### train the QAN or baseline model
+```
+sh scripts/train_qan.sh
+```
+or
+```
+sh scripts/train_baseline.sh
+```
+
+### test prepared model(modify the model path in test.sh)
+```
+sh scripts/test_qan.sh
+```
+or
+```
+sh scripts/test_baseline.sh
+```
+
 We support
 - multi-GPU training.
 - both image-based and video-based reid.
@@ -10,6 +56,7 @@ We support
 - download of trained models.
 
 ## Updates
+- May 2018: Support [Quality Aware Network (CVPR'17)](https://github.com/sciencefans/Quality-Aware-Network)
 - May 2018: Support [MSMT17](http://www.pkuvmc.com/publications/msmt17.html) and [DukeMTMC-VideoReID](https://github.com/Yu-Wu/DukeMTMC-VideoReID); Added Inception-v4 and SE-ResNet50.
 - Apr 2018: Added [DukeMTMC-reID](https://github.com/layumi/DukeMTMC-reID_evaluation#dukemtmc-reid-description); Added [SqueezeNet](https://arxiv.org/abs/1602.07360), [MobileNetV2 (CVPR'18)](https://arxiv.org/abs/1801.04381), [ShuffleNet (CVPR'18)](https://arxiv.org/abs/1707.01083) and [Xception (CVPR'17)](https://arxiv.org/abs/1610.02357).
 - Apr 2018: Added [Harmonious Attention CNN (CVPR'18)](https://arxiv.org/abs/1802.08122). We achieved Rank-1 42.4% (vs. 41.7% in the paper) on CUHK03 (Detected) by training from scratch. The result can be reproduced by `python train_img_model_xent.py -d cuhk03 -a hacnn --save-dir log/hacnn-xent-cuhk03 --height 160 --width 64 --max-epoch 500 --stepsize -1 --eval-step 50`.
