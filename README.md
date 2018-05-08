@@ -28,7 +28,8 @@ ln -s /your/path/to/iLIDS/ data/ilids-vid
 ### Prepare the pretrained model for [resnet50](https://download.pytorch.org/models/resnet50-19c8e357.pth)
 ```
 mkdir pretrained_models
-mv /your/path/to/resnet50.pth/ .
+cd pretrained_models
+mv /your/path/to/model/ resnet50.pth
 ```
 
 ### Train the QAN or baseline model
