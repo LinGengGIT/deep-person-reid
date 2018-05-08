@@ -14,18 +14,21 @@ from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 
 import data_manager
-from dataset_loader import ImageDataset
+from dataset_loader import ImageDataset, VideoDataset
 import transforms as T
 import models
-from losses import CrossEntropyLabelSmooth, RingLoss
+from losses import CrossEntropyLabelSmooth, TripletLoss
 from utils import AverageMeter, Logger, save_checkpoint
 from eval_metrics import evaluate
-from optimizers import init_optim
+from samplers import RandomIdentitySampler
+# from optimizers import init_optim
 
-parser = argparse.ArgumentParser(description='Train image model with ring loss')
+from models.QualityNet import qualitynet_res50
+
+parser = argparse.ArgumentParser(description='Train video model with cross entropy loss')
 # Datasets
 parser.add_argument('--root', type=str, default='data', help="root path to data directory")
-parser.add_argument('-d', '--dataset', type=str, default='market1501',
+parser.add_argument('-d', '--dataset', type=str, default='ilidsvid',
                     choices=data_manager.get_names())
 parser.add_argument('-j', '--workers', default=4, type=int,
                     help="number of data loading workers (default: 4)")
@@ -33,46 +36,54 @@ parser.add_argument('--height', type=int, default=256,
                     help="height of an image (default: 256)")
 parser.add_argument('--width', type=int, default=128,
                     help="width of an image (default: 128)")
-parser.add_argument('--split-id', type=int, default=0, help="split index")
-# CUHK03-specific setting
-parser.add_argument('--cuhk03-labeled', action='store_true',
-                    help="whether to use labeled images, if false, detected images are used (default: False)")
-parser.add_argument('--cuhk03-classic-split', action='store_true',
-                    help="whether to use classic split by Li et al. CVPR'14 (default: False)")
-parser.add_argument('--use-metric-cuhk03', action='store_true',
-                    help="whether to use cuhk03-metric (default: False)")
+parser.add_argument('--seq-len', type=int, default=15, help="number of images to sample in a tracklet")
 # Optimization options
 parser.add_argument('--optim', type=str, default='adam', help="optimization algorithm (see optimizers.py)")
-parser.add_argument('--max-epoch', default=60, type=int,
+parser.add_argument('--max-epoch', default=500, type=int,
                     help="maximum epochs to run")
 parser.add_argument('--start-epoch', default=0, type=int,
                     help="manual epoch number (useful on restarts)")
-parser.add_argument('--train-batch', default=32, type=int,
+parser.add_argument('-b', '--train-batch', default=256, type=int,
                     help="train batch size")
-parser.add_argument('--test-batch', default=32, type=int, help="test batch size")
+parser.add_argument('--test-batch', default=4, type=int, help="test batch size (number of tracklets)")
 parser.add_argument('--lr', '--learning-rate', default=0.0003, type=float,
                     help="initial learning rate")
-parser.add_argument('--stepsize', default=20, type=int,
+parser.add_argument('--stepsize', default=200, type=int,
                     help="stepsize to decay learning rate (>0 means this is enabled)")
 parser.add_argument('--gamma', default=0.1, type=float,
                     help="learning rate decay")
 parser.add_argument('--weight-decay', default=5e-04, type=float,
                     help="weight decay (default: 5e-04)")
-parser.add_argument('--weight-ring', type=float, default=0.01, help="weight for ring loss")
+parser.add_argument('--margin', type=float, default=0.3, help="margin for triplet loss")
+parser.add_argument('--num-instances', type=int, default=4,
+                    help="number of instances per identity")
+parser.add_argument('--htri-only', action='store_true', default=False,
+                    help="if this is True, only htri loss is used in training")
 # Architecture
 parser.add_argument('-a', '--arch', type=str, default='resnet50', choices=models.get_names())
+parser.add_argument('--pool', type=str, default='avg', choices=['avg', 'max', 'qan'])
 # Miscs
-parser.add_argument('--print-freq', type=int, default=10, help="print frequency")
+parser.add_argument('--print-freq', type=int, default=1, help="print frequency")
 parser.add_argument('--seed', type=int, default=1, help="manual seed")
 parser.add_argument('--resume', type=str, default='', metavar='PATH')
 parser.add_argument('--evaluate', action='store_true', help="evaluation only")
-parser.add_argument('--eval-step', type=int, default=-1,
+parser.add_argument('--eval-step', type=int, default=50,
                     help="run evaluation for every N epochs (set to -1 to test after training)")
 parser.add_argument('--save-dir', type=str, default='log')
 parser.add_argument('--use-cpu', action='store_true', help="use cpu")
 parser.add_argument('--gpu-devices', default='0', type=str, help='gpu device ids for CUDA_VISIBLE_DEVICES')
 
 args = parser.parse_args()
+
+def init_optim(optim, params, lr, weight_decay):
+    if optim == 'adam':
+        return torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
+    elif optim == 'sgd':
+        return torch.optim.SGD(params, lr=lr, momentum=0.9, weight_decay=weight_decay)
+    elif optim == 'rmsprop':
+        return torch.optim.RMSprop(params, lr=lr, momentum=0.9, weight_decay=weight_decay)
+    else:
+        raise KeyError("Unsupported optim: {}".format(optim))
 
 def main():
     torch.manual_seed(args.seed)
@@ -94,10 +105,7 @@ def main():
         print("Currently using CPU (GPU is highly recommended)")
 
     print("Initializing dataset {}".format(args.dataset))
-    dataset = data_manager.init_dataset(
-        root=args.root, name=args.dataset, split_id=args.split_id,
-        cuhk03_labeled=args.cuhk03_labeled, cuhk03_classic_split=args.cuhk03_classic_split,
-    )
+    dataset = data_manager.init_dataset(root=args.root, name=args.dataset)
 
     transform_train = T.Compose([
         T.Random2DTranslation(args.height, args.width),
@@ -114,34 +122,41 @@ def main():
 
     pin_memory = True if use_gpu else False
 
+    # decompose tracklets into images for image-based training
+    new_train = []
+    for img_paths, pid, camid in dataset.train:
+        for img_path in img_paths:
+            new_train.append((img_path, pid, camid))
+
     trainloader = DataLoader(
-        ImageDataset(dataset.train, transform=transform_train),
-        batch_size=args.train_batch, shuffle=True, num_workers=args.workers,
+        VideoDataset(dataset.train, seq_len=args.seq_len, sample='random', transform=transform_train), shuffle=True,
+        # ImageDataset(new_train, transform=transform_train),
+        # sampler=RandomIdentitySampler(new_train, num_instances=args.num_instances),
+        batch_size=args.train_batch, num_workers=args.workers,
         pin_memory=pin_memory, drop_last=True,
     )
 
     queryloader = DataLoader(
-        ImageDataset(dataset.query, transform=transform_test),
+        VideoDataset(dataset.query, seq_len=args.seq_len, sample='evenly', transform=transform_test),
         batch_size=args.test_batch, shuffle=False, num_workers=args.workers,
         pin_memory=pin_memory, drop_last=False,
     )
 
     galleryloader = DataLoader(
-        ImageDataset(dataset.gallery, transform=transform_test),
+        VideoDataset(dataset.gallery, seq_len=args.seq_len, sample='evenly', transform=transform_test),
         batch_size=args.test_batch, shuffle=False, num_workers=args.workers,
         pin_memory=pin_memory, drop_last=False,
     )
 
     print("Initializing model: {}".format(args.arch))
-    model = models.init_model(name=args.arch, num_classes=dataset.num_train_pids, loss={'ring'}, use_gpu=use_gpu)
+    # model = models.init_model(name=args.arch, num_classes=dataset.num_train_pids, loss={'xent', 'htri'})
+    model = qualitynet_res50(dataset.num_train_pids, loss={'xent', 'htri'})
     print("Model size: {:.5f}M".format(sum(p.numel() for p in model.parameters())/1000000.0))
 
     criterion_xent = CrossEntropyLabelSmooth(num_classes=dataset.num_train_pids, use_gpu=use_gpu)
-    criterion_ring = RingLoss(args.weight_ring)
-    if use_gpu: criterion_ring = criterion_ring.cuda()
+    criterion_htri = TripletLoss(margin=args.margin)
 
-    params = list(model.parameters()) + list(criterion_ring.parameters())
-    optimizer = init_optim(args.optim, params, args.lr, args.weight_decay)
+    optimizer = init_optim(args.optim, model.parameters(), args.lr, args.weight_decay)
     if args.stepsize > 0:
         scheduler = lr_scheduler.StepLR(optimizer, step_size=args.stepsize, gamma=args.gamma)
     start_epoch = args.start_epoch
@@ -157,7 +172,7 @@ def main():
 
     if args.evaluate:
         print("Evaluate only")
-        test(model, queryloader, galleryloader, use_gpu)
+        test(model, queryloader, galleryloader, args.pool, use_gpu)
         return
 
     start_time = time.time()
@@ -168,14 +183,14 @@ def main():
 
     for epoch in range(start_epoch, args.max_epoch):
         start_train_time = time.time()
-        train(epoch, model, criterion_xent, criterion_ring, optimizer, trainloader, use_gpu)
+        train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, use_gpu)
         train_time += round(time.time() - start_train_time)
         
         if args.stepsize > 0: scheduler.step()
         
         if args.eval_step > 0 and (epoch+1) % args.eval_step == 0 or (epoch+1) == args.max_epoch:
             print("==> Test")
-            rank1 = test(model, queryloader, galleryloader, use_gpu)
+            rank1 = test(model, queryloader, galleryloader, args.pool, use_gpu)
             is_best = rank1 > best_rank1
             if is_best:
                 best_rank1 = rank1
@@ -198,35 +213,76 @@ def main():
     train_time = str(datetime.timedelta(seconds=train_time))
     print("Finished. Total elapsed time (h:m:s): {}. Training time (h:m:s): {}.".format(elapsed, train_time))
 
-def train(epoch, model, criterion_xent, criterion_ring, optimizer, trainloader, use_gpu):
+def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, use_gpu):
     model.train()
     losses = AverageMeter()
 
     for batch_idx, (imgs, pids, _) in enumerate(trainloader):
+        batch_size = pids.size(0)
+        labels = pids
+        if len(imgs.shape)>4:
+            imgs = imgs.view(-1, 3, args.height, args.width)
+            pids = pids.view(batch_size,1).expand(batch_size, args.seq_len).contiguous().view(-1)
         if use_gpu:
-            imgs, pids = imgs.cuda(), pids.cuda()
-        outputs, features = model(imgs)
-        xentloss = criterion_xent(outputs, pids)
-        ringloss = criterion_ring(features)
-        loss = xentloss + ringloss
+            imgs, pids, labels = imgs.cuda(), pids.cuda(), labels.cuda()
+        outputs, features, scores = model(imgs)
+        if args.htri_only:
+            # only use hard triplet loss to train the network
+            loss = criterion_htri(features, pids)
+        else:
+            # combine hard triplet loss with cross entropy loss
+            xent_loss = criterion_xent(outputs, pids)
+            htri_loss = criterion_htri(features, pids)
+            loss = xent_loss + htri_loss
+
+        
+        # outputs = outputs.view(batch_size, args.seq_len, -1)
+        features = features.view(batch_size, args.seq_len, -1)
+        scores = scores.view(batch_size, args.seq_len, -1).expand(batch_size, args.seq_len, features.size(-1))
+        features = (features * scores).sum(1)
+        scores = scores.sum(1)
+        features = features / scores
+        seq_out, _ = model(features)
+        if args.htri_only:
+            # only use hard triplet loss to train the network
+            loss += criterion_htri(features, labels)
+        else:
+            # combine hard triplet loss with cross entropy loss
+            xent_loss = criterion_xent(seq_out, labels)
+            htri_loss = criterion_htri(features, labels)
+            loss += xent_loss 
+            loss += htri_loss
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        losses.update(loss.item(), pids.size(0))
+        losses.update(loss.item(), labels.size(0))
 
         if (batch_idx+1) % args.print_freq == 0:
             print("Epoch {}/{}\t Batch {}/{}\t Loss {:.6f} ({:.6f})".format(
                 epoch+1, args.max_epoch, batch_idx+1, len(trainloader), losses.val, losses.avg
             ))
 
-def test(model, queryloader, galleryloader, use_gpu, ranks=[1, 5, 10, 20]):
+def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20]):
     model.eval()
 
     with torch.no_grad():
         qf, q_pids, q_camids = [], [], []
         for batch_idx, (imgs, pids, camids) in enumerate(queryloader):
             if use_gpu: imgs = imgs.cuda()
-            features = model(imgs)
+            b, s, c, h, w = imgs.size()
+            imgs = imgs.view(b*s, c, h, w)
+            _, features, scores = model(imgs)
+            features = features.view(b, s, -1)
+            if pool == 'avg':
+                features = torch.mean(features, 1)
+            elif pool == 'qan':
+                scores = scores.view(b, s, -1).expand(b, s, features.size(-1))
+                features = (features * scores).sum(1)
+                scores = scores.sum(1)
+                features = features / scores
+            else:
+                features, _ = torch.max(features, 1)
             features = features.data.cpu()
             qf.append(features)
             q_pids.extend(pids)
@@ -240,7 +296,19 @@ def test(model, queryloader, galleryloader, use_gpu, ranks=[1, 5, 10, 20]):
         gf, g_pids, g_camids = [], [], []
         for batch_idx, (imgs, pids, camids) in enumerate(galleryloader):
             if use_gpu: imgs = imgs.cuda()
-            features = model(imgs)
+            b, s, c, h, w = imgs.size()
+            imgs = imgs.view(b*s, c, h, w)
+            _, features, scores = model(imgs)
+            features = features.view(b, s, -1)
+            if pool == 'avg':
+                features = torch.mean(features, 1)
+            elif pool == 'qan':
+                scores = scores.view(b, s, -1).expand(b, s, features.size(-1))
+                features = (features * scores).sum(1)
+                scores = scores.sum(1)
+                features = features / scores
+            else:
+                features, _ = torch.max(features, 1)
             features = features.data.cpu()
             gf.append(features)
             g_pids.extend(pids)
@@ -260,7 +328,7 @@ def test(model, queryloader, galleryloader, use_gpu, ranks=[1, 5, 10, 20]):
     distmat = distmat.numpy()
 
     print("Computing CMC and mAP")
-    cmc, mAP = evaluate(distmat, q_pids, g_pids, q_camids, g_camids, use_metric_cuhk03=args.use_metric_cuhk03)
+    cmc, mAP = evaluate(distmat, q_pids, g_pids, q_camids, g_camids)
 
     print("Results ----------")
     print("mAP: {:.1%}".format(mAP))
