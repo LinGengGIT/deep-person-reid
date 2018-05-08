@@ -2,6 +2,7 @@
 data/
 log/
 saved-models/
+pretrained_models/
 train_imagenet.py
 
 # OS X
