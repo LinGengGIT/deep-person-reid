@@ -13,6 +13,18 @@ Rank-20 : 96.7%
 ------------------
 ```
 
+## Best model for baseline (sequence based)
+```
+Results ----------
+mAP: 78.1%
+CMC curve
+Rank-1  : 69.3%
+Rank-5  : 89.3%
+Rank-10 : 94.0%
+Rank-20 : 96.0%
+------------------
+```
+
 ### Download the code
 ```
 git clone -b qan https://github.com/yxgeee/deep-person-reid.git
