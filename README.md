@@ -16,12 +16,12 @@ Rank-20 : 96.7%
 ## Best model for baseline (sequence based)
 ```
 Results ----------
-mAP: 78.1%
+mAP: 79.6%
 CMC curve
-Rank-1  : 69.3%
-Rank-5  : 89.3%
-Rank-10 : 94.0%
-Rank-20 : 96.0%
+Rank-1  : 72.7%
+Rank-5  : 88.0%
+Rank-10 : 93.3%
+Rank-20 : 94.0%
 ------------------
 ```
 
