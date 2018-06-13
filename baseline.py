@@ -134,9 +134,9 @@ def main():
             new_train.append((img_path, pid, camid))
 
     trainloader = DataLoader(
-        #VideoDataset(dataset.train, seq_len=args.seq_len, sample='random', transform=transform_train), shuffle=True,
-        ImageDataset(new_train, transform=transform_train),
-        sampler=RandomIdentitySampler(new_train, num_instances=args.num_instances),
+        VideoDataset(dataset.train, seq_len=args.seq_len, sample='random', transform=transform_train), shuffle=True,
+        # ImageDataset(new_train, transform=transform_train),
+        # sampler=RandomIdentitySampler(new_train, num_instances=args.num_instances),
         batch_size=args.train_batch, num_workers=args.workers,
         pin_memory=pin_memory, drop_last=True,
     )
@@ -227,6 +227,9 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
     for batch_idx, (imgs, pids, _) in enumerate(trainloader):
         data_time.update(time.time() - end)
         batch_size = pids.size(0)
+        if len(imgs.shape)>4:
+            imgs = imgs.view(-1, 3, args.height, args.width)
+            pids = pids.view(batch_size,1).expand(batch_size, args.seq_len).contiguous().view(-1)
         if use_gpu:
             imgs, pids = imgs.cuda(), pids.cuda()
         outputs, features = model(imgs)
@@ -240,10 +243,10 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
             htri_loss = criterion_htri(features, pids)
             loss_img = xent_loss + htri_loss
 
-        loss = loss_img
+        # loss = loss_img
 
         optimizer.zero_grad()
-        loss.backward()
+        loss_img.backward()
         optimizer.step()
 
         losses_img.update(loss_img.item(), pids.size(0))
