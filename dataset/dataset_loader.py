@@ -42,7 +42,7 @@ class VideoDataset(Dataset):
     """Video Person ReID Dataset.
     Note batch data has shape (batch, seq_len, channel, height, width).
     """
-    sample_methods = ['evenly', 'random', 'all']
+    sample_methods = ['evenly', 'random', 'all', 'satten']
 
     def __init__(self, dataset, seq_len=15, sample='evenly', transform=None):
         self.dataset = dataset
@@ -68,6 +68,17 @@ class VideoDataset(Dataset):
             # sort indices to keep temporal order
             # comment it to be order-agnostic
             indices = np.sort(indices)
+        elif self.sample == 'satten':
+            if num >= self.seq_len:
+                num -= num % self.seq_len
+                indices = np.arange(0, num, num/self.seq_len) + np.random.randint(num/self.seq_len, size=(self.seq_len))
+            else:
+                # if num is smaller than seq_len, simply replicate the last image
+                # until the seq_len requirement is satisfied
+                indices = np.arange(0, num)
+                num_pads = self.seq_len - num
+                indices = np.concatenate([indices, np.ones(num_pads).astype(np.int32)*(num-1)])
+            assert len(indices) == self.seq_len
         elif self.sample == 'evenly':
             """Evenly sample seq_len items from num items."""
             if num >= self.seq_len:

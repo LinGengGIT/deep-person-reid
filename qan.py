@@ -226,6 +226,10 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
     data_time = AverageMeter()
     losses_img = AverageMeter()
     losses_seq = AverageMeter()
+    xent_img = AverageMeter()
+    htri_img = AverageMeter()
+    xent_seq = AverageMeter()
+    htri_seq = AverageMeter()
     model.train()
 
     end = time.time()
@@ -250,8 +254,9 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
             # combine hard triplet loss with cross entropy loss
             xent_loss = criterion_xent(outputs, pids)
             htri_loss = criterion_htri(features, pids)
+            xent_img.update(xent_loss.item(), pids.size(0))
+            htri_img.update(htri_loss.item(), pids.size(0))
             loss_img = xent_loss + htri_loss
-
 
         # outputs = outputs.view(batch_size, args.seq_len, -1)
         features = features.view(batch_size, args.seq_len, -1)
@@ -268,6 +273,8 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
             # combine hard triplet loss with cross entropy loss
             xent_loss = criterion_xent(seq_out, labels)
             htri_loss = criterion_htri(features, labels)
+            xent_seq.update(xent_loss.item(), labels.size(0))
+            htri_seq.update(htri_loss.item(), labels.size(0))
             loss_seq = xent_loss + htri_loss
         loss = loss_img + loss_seq
 
@@ -285,13 +292,27 @@ def train(epoch, model, criterion_xent, criterion_htri, optimizer, trainloader, 
             # print("Epoch {}/{}\t Batch {}/{}\t Loss {:.6f} ({:.6f})".format(
             #     epoch+1, args.max_epoch, batch_idx+1, len(trainloader), losses.val, losses.avg
             # ))
-            print('Epoch: [{0}/{1}][{2}/{3}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'ImgLoss {img_loss.val:.6f} ({img_loss.avg:.6f})\t'
-                  'SeqLoss {seq_loss.val:.6f} ({seq_loss.avg:.6f})'.format(
-                   epoch+1, args.max_epoch, batch_idx+1, len(trainloader), batch_time=batch_time,
-                   data_time=data_time, img_loss=losses_img, seq_loss=losses_seq))
+            if args.htri_only:
+                print('Epoch: [{0}/{1}][{2}/{3}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                      'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                      'ImgLoss {img_loss.val:.6f} ({img_loss.avg:.6f})\t'
+                      'SeqLoss {seq_loss.val:.6f} ({seq_loss.avg:.6f})'.format(
+                       epoch+1, args.max_epoch, batch_idx+1, len(trainloader), batch_time=batch_time,
+                       data_time=data_time, img_loss=losses_img, seq_loss=losses_seq))
+            else:
+                print('Epoch: [{0}/{1}][{2}/{3}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                      'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                      'ImgLoss {img_loss.val:.6f} ({img_loss.avg:.6f})\t'
+                      'ImgXent {xent_img.val:.6f} ({xent_img.avg:.6f})\t'
+                      'ImgHtri {htri_img.val:.6f} ({htri_img.avg:.6f})\t'
+                      'SeqLoss {seq_loss.val:.6f} ({seq_loss.avg:.6f})\t'
+                      'SeqXent {xent_seq.val:.6f} ({xent_seq.avg:.6f})\t'
+                      'SeqHtri {htri_seq.val:.6f} ({htri_seq.avg:.6f})'.format(
+                       epoch+1, args.max_epoch, batch_idx+1, len(trainloader), batch_time=batch_time,
+                       data_time=data_time, img_loss=losses_img, xent_img=xent_img, 
+                       htri_img=htri_img, seq_loss=losses_seq, xent_seq=xent_seq, htri_seq=htri_seq))
 
 
 def test(model, queryloader, galleryloader, pool, use_gpu, ranks=[1, 5, 10, 20]):
